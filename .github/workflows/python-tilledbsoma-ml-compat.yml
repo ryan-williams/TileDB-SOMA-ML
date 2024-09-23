@@ -4,11 +4,15 @@ on:
   pull_request:
     branches: ["**"]
     paths-ignore:
+      - CHANGELOG.md
+      - README.md
       - "scripts/**"
       - "notebooks/**"
   push:
     branches: [main]
     paths-ignore:
+      - CHANGELOG.md
+      - README.md
       - "scripts/**"
       - "notebooks/**"
   workflow_dispatch:

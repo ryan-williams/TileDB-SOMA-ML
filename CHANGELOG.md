@@ -23,7 +23,7 @@ been made to the package utility (e.g., multi-GPU support), improved API UX, etc
 - Add shuffling support [PR #9](https://github.com/single-cell-data/TileDB-SOMA-ML/pull/9)
 - Add first draft of tutorial notebooks [PR #10](https://github.com/single-cell-data/TileDB-SOMA-ML/pull/10)
 - Archive script used to populate the repo commit history [PR #11](https://github.com/single-cell-data/TileDB-SOMA-ML/pull/11)
-- I/O buffer performance optimization [PR #12](https://github.com/single-cell-data/TileDB-SOMA-ML/pull/12)
+- I/O buffer performance optimization [PR #13](https://github.com/single-cell-data/TileDB-SOMA-ML/pull/13)
 
 ### Changed
 

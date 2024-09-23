@@ -1,10 +1,72 @@
-name: python-tiledbsoma-ml
+name: python-tiledbsoma-ml CI
 
 on:
+  pull_request:
+    branches: ["*"]
+    paths-ignore:
+      - 'scripts/**'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'scripts/**'
+
   workflow_dispatch:
 
 jobs:
-  job:
+  lint:
     runs-on: ubuntu-latest
     steps:
-    # Empty job; placeholder GHA
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore pre-commit cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: pip -v install pre-commit
+
+      - name: Run pre-commit hooks on all files
+        run: pre-commit run -v -a
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install prereqs
+        run: |
+          pip install --upgrade pip wheel pytest pytest-cov setuptools
+          pip install .
+
+      - name: Run tests
+        run: pytest -v --cov=src --cov-report=xml tests
+
+  build:
+    # for now, just do a test build to ensure that it works
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Do build
+        run: |
+          pip install --upgrade build pip wheel setuptools setuptools-scm
+          python -m build .

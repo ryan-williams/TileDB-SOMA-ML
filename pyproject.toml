@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiledbsoma-ml"
+dynamic = ["version"]
+dependencies = [
+    "attrs>=22.2",
+    "tiledbsoma>=1.9.0",
+    "torch>=2.0",
+    "torchdata<=0.9",
+    "numpy",
+    "numba",
+    "pandas",
+    "pyarrow",
+    "scipy"
+]
+requires-python = ">= 3.9"
+description = "Machine learning tools for use with tiledbsoma"
+readme = "README.md"
+authors = [
+    {name = "TileDB, Inc.", email = "help@tiledb.io"},
+    {name = "The Chan Zuckerberg Initiative Foundation", email = "soma@chanzuckerberg.com" },
+]
+maintainers = [
+    {name = "TileDB, Inc.", email="help@tiledb.io"},
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: Unix",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Repository = "https://github.com/TileDB-Inc/TileDB-SOMA-ML.git"
+Issues = "https://github.com/TileDB-Inc/TileDB-SOMA-ML/issues"
+Changelog = "https://github.com/TileDB-Inc/TileDB-SOMA-ML/blob/main/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = {attr = "tiledbsoma_ml.__version__"}
+
+[tool.setuptools.package-data]
+"tiledbsoma_ml" = ["py.typed"]
+
+[tool.setuptools_scm]
+root = "../../.."
+
+[tool.mypy]
+show_error_codes = true
+ignore_missing_imports = true
+warn_unreachable = true
+strict = true
+python_version = 3.9
+plugins = "numpy.typing.mypy_plugin"
+
+[tool.ruff]
+lint.select = ["E", "F", "B", "I"]
+lint.ignore = ["E501"]  # line too long
+lint.extend-select = ["I001"]  # unsorted-imports
+fix = true
+target-version = "py39"
+line-length = 120

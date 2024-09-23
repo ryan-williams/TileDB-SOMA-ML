@@ -1,0 +1,46 @@
+name: python-tiledbsoma-ml past tiledbsoma compat # Latest tiledbsoma version covered by another workflow
+
+on:
+  pull_request:
+    branches: ["*"]
+    paths-ignore:
+      - "scripts/**"
+      - "notebooks/**"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "scripts/**"
+      - "notebooks/**"
+
+jobs:
+  unit_tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-latest"]  # could add 'macos-latest', but the matrix is already huge...
+        python-version: ["3.9", "3.10", "3.11"]  # TODO: add 3.12 when tiledbsoma releases wheels for it.
+        pkg-version:
+          - "tiledbsoma~=1.9.0 'numpy<2.0.0'"
+          - "tiledbsoma~=1.10.0 'numpy<2.0.0'"
+          - "tiledbsoma~=1.11.0"
+          - "tiledbsoma~=1.12.0"
+          - "tiledbsoma~=1.13.0"
+          - "tiledbsoma~=1.14.0"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install prereqs
+        run: |
+          pip install --upgrade pip pytest setuptools
+          pip install ${{ matrix.pkg-version }} .
+
+      - name: Run tests
+        run: pytest -v tests

@@ -3,10 +3,14 @@ name: python-tiledbsoma-ml CI
 on:
   pull_request:
     branches: ["**"]
-    paths-ignore: ['scripts/**']
+    paths-ignore:
+      - "scripts/**"
+      - "notebooks/**"
   push:
     branches: [main]
-    paths-ignore: ['scripts/**']
+    paths-ignore:
+      - "scripts/**"
+      - "notebooks/**"
   workflow_dispatch:
 
 jobs:

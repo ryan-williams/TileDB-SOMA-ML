@@ -8,6 +8,7 @@
 from .pytorch import (
     ExperimentAxisQueryIterableDataset,
     ExperimentAxisQueryIterDataPipe,
+    experiment_dataloader,
 )
 
 __version__ = "0.1.0-dev"
@@ -15,4 +16,5 @@ __version__ = "0.1.0-dev"
 __all__ = [
     "ExperimentAxisQueryIterDataPipe",
     "ExperimentAxisQueryIterableDataset",
+    "experiment_dataloader",
 ]

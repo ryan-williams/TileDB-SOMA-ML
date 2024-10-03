@@ -176,6 +176,7 @@ def test_non_batched(
             query,
             X_name="raw",
             obs_column_names=["label"],
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
             return_sparse_X=return_sparse_X,
         )
@@ -220,6 +221,7 @@ def test_uneven_soma_and_result_batches(
             query,
             X_name="raw",
             obs_column_names=["label"],
+            shuffle=False,
             batch_size=3,
             io_batch_size=2,
             use_eager_fetch=use_eager_fetch,
@@ -268,6 +270,7 @@ def test_batching__all_batches_full_size(
             X_name="raw",
             obs_column_names=["label"],
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
             return_sparse_X=return_sparse_X,
         )
@@ -309,6 +312,7 @@ def test_soma_joinids(
             X_name="raw",
             obs_column_names=["soma_joinid", "label"],
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
         )
         assert exp_data_pipe.shape == (1, 3)
@@ -338,6 +342,7 @@ def test_batching__partial_final_batch_size(
             X_name="raw",
             obs_column_names=["label"],
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
             return_sparse_X=return_sparse_X,
         )
@@ -373,6 +378,7 @@ def test_batching__exactly_one_batch(
             X_name="raw",
             obs_column_names=["label"],
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
         )
         assert exp_data_pipe.shape == (1, 3)
@@ -414,10 +420,12 @@ def test_batching__empty_query_result(
 
 
 @pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(10, 1, pytorch_x_value_gen)],
+    "obs_range,var_range,X_value_gen,use_eager_fetch",
+    [
+        (10, 1, pytorch_x_value_gen, use_eager_fetch)
+        for use_eager_fetch in (True, False)
+    ],
 )
-@pytest.mark.parametrize("use_eager_fetch", [True, False])
 @pytest.mark.parametrize("PipeClass", PipeClasses)
 def test_batching__partial_soma_batches_are_concatenated(
     PipeClass: PipeClassType, soma_experiment: Experiment, use_eager_fetch: bool
@@ -503,6 +511,7 @@ def test_distributed__returns_data_partition_for_rank(
                 X_name="raw",
                 obs_column_names=["soma_joinid"],
                 io_batch_size=2,
+                shuffle=False,
             )
             batches = list(iter(dp))
             soma_joinids = np.concatenate(
@@ -567,6 +576,7 @@ def test_distributed_and_multiprocessing__returns_data_partition_for_rank(
                         X_name="raw",
                         obs_column_names=["soma_joinid"],
                         io_batch_size=2,
+                        shuffle=False,
                     )
 
                     batches = list(iter(dp))
@@ -596,6 +606,7 @@ def test_experiment_dataloader__non_batched(
             query,
             X_name="raw",
             obs_column_names=["label"],
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
         )
         dl = experiment_dataloader(dp)
@@ -626,6 +637,7 @@ def test_experiment_dataloader__batched(
             query,
             X_name="raw",
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
         )
         dl = experiment_dataloader(dp)
@@ -658,6 +670,7 @@ def test_experiment_dataloader__batched_length(
             X_name="raw",
             obs_column_names=["label"],
             batch_size=3,
+            shuffle=False,
             use_eager_fetch=use_eager_fetch,
         )
         dl = experiment_dataloader(dp)
@@ -697,6 +710,7 @@ def test_experiment_dataloader__collate_fn(
             X_name="raw",
             obs_column_names=["label"],
             batch_size=batch_size,
+            shuffle=False,
         )
         dl = experiment_dataloader(dp, collate_fn=partial(collate_fn, batch_size))
         assert len(list(dl)) > 0
@@ -722,6 +736,59 @@ def test__pytorch_splitting(
 
         all_rows = list(iter(dl))
         assert len(all_rows) == 7
+
+
+@pytest.mark.parametrize(
+    "obs_range,var_range,X_value_gen", [(16, 1, pytorch_seq_x_value_gen)]
+)
+@pytest.mark.parametrize("PipeClass", PipeClasses)
+def test__shuffle(PipeClass: PipeClassType, soma_experiment: Experiment) -> None:
+    with soma_experiment.axis_query(measurement_name="RNA") as query:
+        dp = PipeClass(
+            query,
+            X_name="raw",
+            shuffle=True,
+        )
+
+        all_rows = list(iter(dp))
+        if PipeClass is ExperimentAxisQueryIterable:
+            assert all(np.squeeze(r[0], axis=0).shape == (1,) for r in all_rows)
+        else:
+            assert all(r[0].shape == (1,) for r in all_rows)
+        soma_joinids = [row[1]["soma_joinid"].iloc[0] for row in all_rows]
+        X_values = [row[0][0].item() for row in all_rows]
+
+        # same elements
+        assert set(soma_joinids) == set(range(16))
+        # not ordered! (...with a `1/16!` probability of being ordered)
+        assert soma_joinids != list(range(16))
+        # randomizes X in same order as obs
+        # note: X values were explicitly set to match obs_joinids to allow for this simple assertion
+        assert X_values == soma_joinids
+
+
+@pytest.mark.parametrize(
+    "obs_range,var_range,X_value_gen", [(6, 3, pytorch_x_value_gen)]
+)
+def test_experiment_axis_query_iterable_error_checks(
+    soma_experiment: Experiment,
+) -> None:
+    with soma_experiment.axis_query(measurement_name="RNA") as query:
+        dp = ExperimentAxisQueryIterable(
+            query,
+            X_name="raw",
+            shuffle=True,
+        )
+        with pytest.raises(NotImplementedError):
+            dp[0]
+
+        with pytest.raises(ValueError):
+            dp = ExperimentAxisQueryIterable(
+                query,
+                obs_column_names=(),
+                X_name="raw",
+                shuffle=True,
+            )
 
 
 def test_experiment_dataloader__unsupported_params__fails() -> None:

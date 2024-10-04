@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import sys
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, Tuple, Union
@@ -936,7 +937,7 @@ def test_csr__merge(
             np.array_split(sp_coo.row, n_splits),
             np.array_split(sp_coo.col, n_splits),
             np.array_split(sp_coo.data, n_splits),
-            strict=False,
+            **(dict(strict=False) if sys.version_info > (3, 9) else {}),
         )
     ]
     _ncsr = _CSR_IO_Buffer.merge(

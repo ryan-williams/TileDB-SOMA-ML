@@ -712,6 +712,14 @@ class ExperimentAxisQueryIterableDataset(
         return self._exp_iter.shape
 
 
+UNSUPPORTED_DATALOADER_ARGS = {
+    "shuffle",
+    "batch_size",
+    "sampler",
+    "batch_sampler",
+}
+
+
 def experiment_dataloader(
     ds: torchdata.datapipes.iter.IterDataPipe | torch.utils.data.IterableDataset,
     **dataloader_kwargs: Any,
@@ -746,13 +754,9 @@ def experiment_dataloader(
     Lifecycle:
         experimental
     """
-    unsupported_dataloader_args = [
-        "shuffle",
-        "batch_size",
-        "sampler",
-        "batch_sampler",
-    ]
-    if set(unsupported_dataloader_args).intersection(dataloader_kwargs.keys()):
+    if unsupported_dataloader_args := UNSUPPORTED_DATALOADER_ARGS.intersection(
+        dataloader_kwargs
+    ):
         raise ValueError(
             f"The {','.join(unsupported_dataloader_args)} DataLoader parameters are not supported"
         )
@@ -761,6 +765,7 @@ def experiment_dataloader(
         _init_multiprocessing()
 
     if "collate_fn" not in dataloader_kwargs:
+        # PyTorch's default collate_fn manipulates batches, which we don't want; replace it with a no-op.
         dataloader_kwargs["collate_fn"] = _collate_noop
 
     return torch.utils.data.DataLoader(

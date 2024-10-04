@@ -7,13 +7,10 @@ from __future__ import annotations
 
 import contextlib
 import gc
-import itertools
 import logging
 import os
-import sys
 import time
 from contextlib import contextmanager
-from itertools import islice
 from math import ceil
 from typing import (
     Any,
@@ -38,10 +35,11 @@ import torch
 import torchdata
 from somacore.query._eager_iter import EagerIterator as _EagerIterator
 
+from tiledbsoma_ml._utils import splits
+
 logger = logging.getLogger("tiledbsoma_ml.pytorch")
 
 _T = TypeVar("_T")
-_T_co = TypeVar("_T_co", covariant=True)
 
 NDArrayNumber = npt.NDArray[np.number[Any]]
 XDatum = Union[NDArrayNumber, sparse.csr_matrix]
@@ -192,7 +190,7 @@ class ExperimentAxisQueryIterable(Iterable[XObsDatum]):
 
         # 1. Get the split for the model replica/GPU
         world_size, rank = _get_distributed_world_rank()
-        _gpu_splits = _splits(len(obs_joinids), world_size)
+        _gpu_splits = splits(len(obs_joinids), world_size)
         _gpu_split = obs_joinids[_gpu_splits[rank] : _gpu_splits[rank + 1]]
 
         # 2. Trim to be all of equal length - equivalent to a "drop_last"
@@ -207,7 +205,7 @@ class ExperimentAxisQueryIterable(Iterable[XObsDatum]):
 
         # 3. Partition by DataLoader worker
         n_workers, worker_id = _get_worker_world_rank()
-        obs_splits = _splits(len(obs_joinids_chunked), n_workers)
+        obs_splits = splits(len(obs_joinids_chunked), n_workers)
         obs_partition_joinids = obs_joinids_chunked[
             obs_splits[worker_id] : obs_splits[worker_id + 1]
         ].copy()
@@ -782,45 +780,6 @@ def _collate_noop(datum: _T) -> _T:
     Private.
     """
     return datum
-
-
-def _splits(total_length: int, sections: int) -> npt.NDArray[np.intp]:
-    """For ``total_length`` points, compute start/stop offsets that split the length into roughly equal sizes.
-
-    A total_length of L, split into N sections, will return L%N sections of size L//N+1,
-    and the remainder as size L//N. This results in the same split as numpy.array_split,
-    for an array of length L and sections N.
-
-    Private.
-
-    Examples
-    --------
-    >>> _splits(10, 3)
-    array([0,  4,  7, 10])
-    >>> _splits(4, 2)
-    array([0, 2, 4])
-    """
-    if sections <= 0:
-        raise ValueError("number of sections must greater than 0.") from None
-    each_section, extras = divmod(total_length, sections)
-    per_section_sizes = (
-        [0] + extras * [each_section + 1] + (sections - extras) * [each_section]
-    )
-    splits = np.array(per_section_sizes, dtype=np.intp).cumsum()
-    return splits
-
-
-if sys.version_info >= (3, 12):
-    _batched = itertools.batched
-else:
-
-    def _batched(iterable: Iterable[_T_co], n: int) -> Iterator[Tuple[_T_co, ...]]:
-        """Same as the Python 3.12+ ``itertools.batched`` -- polyfill for old Python versions."""
-        if n < 1:
-            raise ValueError("n must be at least one")
-        it = iter(iterable)
-        while batch := tuple(islice(it, n)):
-            yield batch
 
 
 def _get_distributed_world_rank() -> Tuple[int, int]:

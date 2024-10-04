@@ -736,38 +736,3 @@ def test_experiment_dataloader__unsupported_params__fails() -> None:
             experiment_dataloader(dummy_exp_data_pipe, batch_sampler=[])
         with pytest.raises(ValueError):
             experiment_dataloader(dummy_exp_data_pipe, sampler=[])
-
-
-def test_batched() -> None:
-    from tiledbsoma_ml.pytorch import _batched
-
-    assert list(_batched(range(6), 1)) == list((i,) for i in range(6))
-    assert list(_batched(range(6), 2)) == [(0, 1), (2, 3), (4, 5)]
-    assert list(_batched(range(6), 3)) == [(0, 1, 2), (3, 4, 5)]
-    assert list(_batched(range(6), 4)) == [(0, 1, 2, 3), (4, 5)]
-    assert list(_batched(range(6), 5)) == [(0, 1, 2, 3, 4), (5,)]
-    assert list(_batched(range(6), 6)) == [(0, 1, 2, 3, 4, 5)]
-    assert list(_batched(range(6), 7)) == [(0, 1, 2, 3, 4, 5)]
-
-    # bogus batch value
-    with pytest.raises(ValueError):
-        list(_batched([0, 1], 0))
-    with pytest.raises(ValueError):
-        list(_batched([2, 3], -1))
-
-
-def test_splits() -> None:
-    from tiledbsoma_ml.pytorch import _splits
-
-    assert _splits(10, 1).tolist() == [0, 10]
-    assert _splits(10, 2).tolist() == [0, 5, 10]
-    assert _splits(10, 3).tolist() == [0, 4, 7, 10]
-    assert _splits(10, 4).tolist() == [0, 3, 6, 8, 10]
-    assert _splits(10, 10).tolist() == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    assert _splits(10, 11).tolist() == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10]
-
-    # bad number of sections
-    with pytest.raises(ValueError):
-        _splits(10, 0)
-    with pytest.raises(ValueError):
-        _splits(10, -1)

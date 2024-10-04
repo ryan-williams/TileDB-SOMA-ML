@@ -69,7 +69,7 @@ plugins = "numpy.typing.mypy_plugin"
 
 [tool.ruff]
 lint.select = ["E", "F", "B", "I"]
-lint.ignore = ["E501"]  # line too long
+lint.ignore = ["E501", "B905"]  # line too long, zip without explicit `strict`
 lint.extend-select = ["I001"]  # unsorted-imports
 fix = true
 target-version = "py311"

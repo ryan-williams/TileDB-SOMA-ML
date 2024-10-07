@@ -47,8 +47,8 @@ jobs:
 
       - name: Install prereqs
         run: |
-          pip install --upgrade pip wheel pytest pytest-cov setuptools
-          pip install .
+          pip install --upgrade pip wheel setuptools
+          pip install .[test]
 
       - name: Run tests
         run: pytest -v --cov=src --cov-report=xml tests

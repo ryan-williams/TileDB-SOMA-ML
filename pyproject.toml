@@ -45,6 +45,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+    "utz[test]==0.10.0",
+]
+
 [project.urls]
 Repository = "https://github.com/TileDB-Inc/TileDB-SOMA-ML.git"
 Issues = "https://github.com/TileDB-Inc/TileDB-SOMA-ML/issues"

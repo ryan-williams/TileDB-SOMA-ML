@@ -6,32 +6,18 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Callable, Union
+from typing import Callable
 
 import numpy as np
+import pytest
 from scipy.sparse import coo_matrix, spmatrix
-
-from tiledbsoma_ml.pytorch import (
-    ExperimentAxisQueryIterable,
-    ExperimentAxisQueryIterableDataset,
-    ExperimentAxisQueryIterDataPipe,
-)
 
 assert_array_equal = partial(np.testing.assert_array_equal, strict=True)
 
-# These control which classes are tested (for most, but not all tests).
-# Centralized to allow easy add/delete of specific test parameters.
-PipeClassType = Union[
-    ExperimentAxisQueryIterable,
-    ExperimentAxisQueryIterDataPipe,
-    ExperimentAxisQueryIterableDataset,
-]
-PipeClasses = (
-    ExperimentAxisQueryIterable,
-    ExperimentAxisQueryIterDataPipe,
-    ExperimentAxisQueryIterableDataset,
-)
 XValueGen = Callable[[range, range], spmatrix]
+
+sweep_eager_fetch = pytest.mark.parametrize("use_eager_fetch", [True, False])
+sweep_sparse_X = pytest.mark.parametrize("return_sparse_X", [True, False])
 
 
 def pytorch_x_value_gen(obs_range: range, var_range: range) -> spmatrix:

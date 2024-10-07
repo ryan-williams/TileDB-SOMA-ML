@@ -6,36 +6,50 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, Tuple
+from typing import Tuple, Type, Union
 from unittest.mock import patch
 
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import pytest
+from pandas._testing import assert_frame_equal
 from tiledbsoma import Experiment
 
-from tests.utils import pytorch_x_value_gen
+from tests.utils import (
+    assert_array_equal,
+    pytorch_x_value_gen,
+    sweep_eager_fetch,
+)
 from tiledbsoma_ml.dataloader import experiment_dataloader
 from tiledbsoma_ml.pytorch import (
     ExperimentAxisQueryIterableDataset,
     ExperimentAxisQueryIterDataPipe,
+    NDArrayNumber,
 )
+
+PipeClassType = Union[
+    Type[ExperimentAxisQueryIterDataPipe],
+    Type[ExperimentAxisQueryIterableDataset],
+]
+PipeClasses = (
+    ExperimentAxisQueryIterDataPipe,
+    ExperimentAxisQueryIterableDataset,
+)
+
+
+sweep_pipeclasses = pytest.mark.parametrize("PipeClass", PipeClasses)
 
 
 @pytest.mark.parametrize(
     "obs_range,var_range,X_value_gen", [(6, 3, pytorch_x_value_gen)]
 )
-@pytest.mark.parametrize(
-    "PipeClass",
-    (ExperimentAxisQueryIterDataPipe, ExperimentAxisQueryIterableDataset),
-)
+@sweep_pipeclasses
 def test_multiprocessing__returns_full_result(
-    PipeClass: ExperimentAxisQueryIterDataPipe | ExperimentAxisQueryIterableDataset,
+    PipeClass: PipeClassType,
     soma_experiment: Experiment,
 ) -> None:
-    """Tests the ExperimentAxisQueryIterDataPipe provides all data, as collected from multiple processes that are managed by a
-    PyTorch DataLoader with multiple workers configured."""
+    """Test that ExperimentAxisQueryIterDataPipe provides all data, as collected from multiple processes managed by a
+    PyTorch DataLoader with multiple workers."""
     with soma_experiment.axis_query(measurement_name="RNA") as query:
         dp = PipeClass(
             query,
@@ -43,57 +57,49 @@ def test_multiprocessing__returns_full_result(
             obs_column_names=["soma_joinid", "label"],
             io_batch_size=3,  # two chunks, one per worker
         )
-        # Note we're testing the ExperimentAxisQueryIterDataPipe via a DataLoader, since this is what sets up the multiprocessing
+        # Test ExperimentAxisQueryIterDataPipe via a DataLoader, since that's what sets up the multiprocessing.
         dl = experiment_dataloader(dp, num_workers=2)
 
-        full_result = list(iter(dl))
+        batches = list(iter(dl))
 
-        soma_joinids = np.concatenate(
-            [t[1]["soma_joinid"].to_numpy() for t in full_result]
-        )
+        soma_joinids = np.concatenate([t[1]["soma_joinid"].to_numpy() for t in batches])
         assert sorted(soma_joinids) == list(range(6))
 
 
 @pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen,use_eager_fetch",
-    [(3, 3, pytorch_x_value_gen, use_eager_fetch) for use_eager_fetch in (True, False)],
+    "obs_range,var_range,X_value_gen,obs_column_names",
+    [(3, 3, pytorch_x_value_gen, ["label"])],
 )
-@pytest.mark.parametrize(
-    "PipeClass",
-    (ExperimentAxisQueryIterDataPipe, ExperimentAxisQueryIterableDataset),
-)
+@sweep_eager_fetch
+@sweep_pipeclasses
 def test_experiment_dataloader__non_batched(
-    PipeClass: ExperimentAxisQueryIterDataPipe | ExperimentAxisQueryIterableDataset,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
+    PipeClass, use_eager_fetch, soma_experiment, obs_column_names
 ) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        dp = PipeClass(
+    with soma_experiment.axis_query("RNA") as query:
+        datapipe = PipeClass(
             query,
-            X_name="raw",
-            obs_column_names=["label"],
+            obs_column_names=obs_column_names,
             use_eager_fetch=use_eager_fetch,
         )
-        dl = experiment_dataloader(dp)
-        data = [row for row in dl]
-        assert all(d[0].shape == (3,) for d in data)
-        assert all(d[1].shape == (1, 1) for d in data)
+        dl = experiment_dataloader(datapipe)
+        batches = list(dl)
+    for X_batch, obs_df in batches:
+        assert X_batch.shape == (3,)
+        assert obs_df.shape == (1, 1)
 
-        row = data[0]
-        assert row[0].tolist() == [0, 1, 0]
-        assert row[1]["label"].tolist() == ["0"]
+    X_batch, obs_batch = batches[0]
+    assert_array_equal(X_batch, np.array([0, 1, 0], dtype=np.float32))
+    assert_frame_equal(obs_batch, pd.DataFrame({"label": ["0"]}))
 
 
 @pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen,use_eager_fetch",
-    [(6, 3, pytorch_x_value_gen, use_eager_fetch) for use_eager_fetch in (True, False)],
+    "obs_range,var_range,X_value_gen",
+    [(6, 3, pytorch_x_value_gen)],
 )
-@pytest.mark.parametrize(
-    "PipeClass",
-    (ExperimentAxisQueryIterDataPipe, ExperimentAxisQueryIterableDataset),
-)
+@sweep_eager_fetch
+@sweep_pipeclasses
 def test_experiment_dataloader__batched(
-    PipeClass: ExperimentAxisQueryIterDataPipe | ExperimentAxisQueryIterableDataset,
+    PipeClass: PipeClassType,
     soma_experiment: Experiment,
     use_eager_fetch: bool,
 ) -> None:
@@ -105,26 +111,23 @@ def test_experiment_dataloader__batched(
             use_eager_fetch=use_eager_fetch,
         )
         dl = experiment_dataloader(dp)
-        data = [row for row in dl]
+        batches = list(dl)
 
-        batch = data[0]
-        assert batch[0].tolist() == [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
-        assert batch[1].to_numpy().tolist() == [[0], [1], [2]]
+        X_batch, obs_batch = batches[0]
+        assert_array_equal(
+            X_batch, np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=np.float32)
+        )
+        assert_frame_equal(obs_batch, pd.DataFrame({"soma_joinid": [0, 1, 2]}))
 
 
 @pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen,use_eager_fetch",
-    [
-        (10, 3, pytorch_x_value_gen, use_eager_fetch)
-        for use_eager_fetch in (True, False)
-    ],
+    "obs_range,var_range,X_value_gen",
+    [(10, 3, pytorch_x_value_gen)],
 )
-@pytest.mark.parametrize(
-    "PipeClass",
-    (ExperimentAxisQueryIterDataPipe, ExperimentAxisQueryIterableDataset),
-)
+@sweep_eager_fetch
+@sweep_pipeclasses
 def test_experiment_dataloader__batched_length(
-    PipeClass: ExperimentAxisQueryIterDataPipe | ExperimentAxisQueryIterableDataset,
+    PipeClass: PipeClassType,
     soma_experiment: Experiment,
     use_eager_fetch: bool,
 ) -> None:
@@ -144,27 +147,25 @@ def test_experiment_dataloader__batched_length(
     "obs_range,var_range,X_value_gen,batch_size",
     [(10, 3, pytorch_x_value_gen, batch_size) for batch_size in (1, 3, 10)],
 )
-@pytest.mark.parametrize(
-    "PipeClass",
-    (ExperimentAxisQueryIterDataPipe, ExperimentAxisQueryIterableDataset),
-)
+@sweep_pipeclasses
 def test_experiment_dataloader__collate_fn(
-    PipeClass: ExperimentAxisQueryIterDataPipe | ExperimentAxisQueryIterableDataset,
+    PipeClass: PipeClassType,
     soma_experiment: Experiment,
     batch_size: int,
 ) -> None:
     def collate_fn(
-        batch_size: int, data: Tuple[npt.NDArray[np.number[Any]], pd.DataFrame]
-    ) -> Tuple[npt.NDArray[np.number[Any]], pd.DataFrame]:
+        batch_size: int, data: Tuple[NDArrayNumber, pd.DataFrame]
+    ) -> Tuple[NDArrayNumber, pd.DataFrame]:
         assert isinstance(data, tuple)
         assert len(data) == 2
-        assert isinstance(data[0], np.ndarray) and isinstance(data[1], pd.DataFrame)
+        X_batch, obs_batch = data
+        assert isinstance(X_batch, np.ndarray) and isinstance(obs_batch, pd.DataFrame)
         if batch_size > 1:
-            assert data[0].shape[0] == data[1].shape[0]
-            assert data[0].shape[0] <= batch_size
+            assert X_batch.shape[0] == obs_batch.shape[0]
+            assert X_batch.shape[0] <= batch_size
         else:
-            assert data[0].ndim == 1
-        assert data[1].shape[1] <= batch_size
+            assert X_batch.ndim == 1
+        assert obs_batch.shape[1] <= batch_size
         return data
 
     with soma_experiment.axis_query(measurement_name="RNA") as query:
@@ -196,8 +197,12 @@ def test__pytorch_splitting(
         )
         dl = experiment_dataloader(dp_train)
 
-        all_rows = list(iter(dl))
-        assert len(all_rows) == 7
+        train_batches = list(iter(dl))
+        assert len(train_batches) == 7
+
+        dl = experiment_dataloader(dp_test)
+        test_batches = list(iter(dl))
+        assert len(test_batches) == 3
 
 
 def test_experiment_dataloader__unsupported_params__fails() -> None:

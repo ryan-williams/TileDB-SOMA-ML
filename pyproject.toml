@@ -56,9 +56,6 @@ version = {attr = "tiledbsoma_ml.__version__"}
 [tool.setuptools.package-data]
 "tiledbsoma_ml" = ["py.typed"]
 
-[tool.setuptools_scm]
-root = "../../.."
-
 [tool.mypy]
 show_error_codes = true
 ignore_missing_imports = true

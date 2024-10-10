@@ -15,9 +15,10 @@ from tiledbsoma import AxisQuery, Collection, Experiment, Measurement
 from torch.utils.data import DataLoader
 from utz import Yield
 
-from tests.conftest import add_dataframe, add_sparse_array
 from tests.utils import (
     XValueGen,
+    add_dataframe,
+    add_sparse_array,
     pytorch_x_value_gen,
 )
 from tiledbsoma_ml.dataloader import experiment_dataloader

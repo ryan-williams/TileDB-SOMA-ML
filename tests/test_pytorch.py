@@ -5,35 +5,35 @@
 
 from __future__ import annotations
 
-from typing import Type, Union
+from functools import partial
+from typing import ContextManager, Union
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
-import tiledbsoma as soma
 from pandas._testing import assert_frame_equal
 from scipy import sparse
-from tiledbsoma import Experiment
+from tiledbsoma import AxisQuery
 from torch.utils.data._utils.worker import WorkerInfo
+from utz import parametrize
 
+from tests.case import Case, PipeClassType
 from tests.utils import (
     assert_array_equal,
-    pytorch_x_value_gen,
-    sweep_eager_fetch,
-    sweep_sparse_X,
 )
 from tiledbsoma_ml.pytorch import (
     ExperimentAxisQueryIterable,
     ExperimentAxisQueryIterableDataset,
     ExperimentAxisQueryIterDataPipe,
+    XObsDatum,
 )
 
 # Classes which are exercised in most test cases.
-PipeClassType = Union[
-    Type[ExperimentAxisQueryIterable],
-    Type[ExperimentAxisQueryIterDataPipe],
-    Type[ExperimentAxisQueryIterableDataset],
+PipeClass = Union[
+    ExperimentAxisQueryIterable,
+    ExperimentAxisQueryIterDataPipe,
+    ExperimentAxisQueryIterableDataset,
 ]
 PipeClasses = (
     ExperimentAxisQueryIterable,
@@ -42,31 +42,28 @@ PipeClasses = (
 )
 
 
-sweep_pipeclasses = pytest.mark.parametrize("PipeClass", PipeClasses)
-
-
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(6, 3, pytorch_x_value_gen)],
+sweep_all = partial(
+    parametrize,
+    use_eager_fetch=[True, False],
+    return_sparse_X=[True, False],
+    PipeClass=PipeClasses,
 )
-@sweep_eager_fetch
-@sweep_sparse_X
-@sweep_pipeclasses
+sweep_eager_pipeclasses = partial(
+    parametrize,
+    use_eager_fetch=[True, False],
+    PipeClass=PipeClasses,
+)
+sweep_pipeclasses = partial(parametrize, PipeClass=PipeClasses)
+
+
+@sweep_all(Case(obs_range=6, obs_column_names=["label"]))
 def test_non_batched(
+    datapipe: ContextManager[PipeClass],
     PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
     return_sparse_X: bool,
-) -> None:
+):
     """Check batches of size 1 (the default)"""
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            use_eager_fetch=use_eager_fetch,
-            return_sparse_X=return_sparse_X,
-        )
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (6, 3)
         batch_iter = iter(exp_data_pipe)
         for idx, (X_batch, obs_batch) in enumerate(batch_iter):
@@ -89,30 +86,20 @@ def test_non_batched(
             assert_frame_equal(obs_batch, pd.DataFrame({"label": [str(idx)]}))
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(6, 3, pytorch_x_value_gen)],
+@sweep_all(
+    Case(
+        obs_range=6,
+        obs_column_names=["label"],
+        batch_size=3,
+        io_batch_size=2,
+    )
 )
-@sweep_eager_fetch
-@sweep_sparse_X
-@sweep_pipeclasses
 def test_uneven_soma_and_result_batches(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
+    datapipe: ContextManager[PipeClass],
     return_sparse_X: bool,
-) -> None:
+):
     """Check that batches are correctly created when they require fetching multiple chunks."""
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            io_batch_size=2,
-            use_eager_fetch=use_eager_fetch,
-            return_sparse_X=return_sparse_X,
-        )
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (2, 3)
         batch_iter = iter(exp_data_pipe)
 
@@ -137,28 +124,12 @@ def test_uneven_soma_and_result_batches(
         assert_frame_equal(obs_batch, pd.DataFrame({"label": ["3", "4", "5"]}))
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(6, 3, pytorch_x_value_gen)],
-)
-@sweep_eager_fetch
-@sweep_sparse_X
-@sweep_pipeclasses
+@sweep_all(Case(obs_range=6, obs_column_names=["label"], batch_size=3))
 def test_batching__all_batches_full_size(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
+    datapipe: ContextManager[PipeClass],
     return_sparse_X: bool,
-) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            use_eager_fetch=use_eager_fetch,
-            return_sparse_X=return_sparse_X,
-        )
+):
+    with datapipe as exp_data_pipe:
         batch_iter = iter(exp_data_pipe)
         assert exp_data_pipe.shape == (2, 3)
 
@@ -180,25 +151,15 @@ def test_batching__all_batches_full_size(
             next(batch_iter)
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(range(100_000_000, 100_000_003), 3, pytorch_x_value_gen)],
+@sweep_eager_pipeclasses(
+    Case(
+        obs_range=range(100_000_000, 100_000_003),
+        obs_column_names=["soma_joinid", "label"],
+        batch_size=3,
+    )
 )
-@sweep_eager_fetch
-@sweep_pipeclasses
-def test_soma_joinids(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
-) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["soma_joinid", "label"],
-            batch_size=3,
-            use_eager_fetch=use_eager_fetch,
-        )
+def test_soma_joinids(datapipe: ContextManager[PipeClass]):
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (1, 3)
 
         soma_joinids = np.concatenate(
@@ -207,28 +168,12 @@ def test_soma_joinids(
         assert_array_equal(soma_joinids, np.arange(100_000_000, 100_000_003))
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(5, 3, pytorch_x_value_gen)],
-)
-@sweep_eager_fetch
-@sweep_sparse_X
-@sweep_pipeclasses
+@sweep_all(Case(obs_range=5, obs_column_names=["label"], batch_size=3))
 def test_batching__partial_final_batch_size(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
+    datapipe: ContextManager[PipeClass],
     return_sparse_X: bool,
-) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            use_eager_fetch=use_eager_fetch,
-            return_sparse_X=return_sparse_X,
-        )
+):
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (2, 3)
         batch_iter = iter(exp_data_pipe)
 
@@ -244,25 +189,9 @@ def test_batching__partial_final_batch_size(
             next(batch_iter)
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(3, 3, pytorch_x_value_gen)],
-)
-@sweep_eager_fetch
-@sweep_pipeclasses
-def test_batching__exactly_one_batch(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
-) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            use_eager_fetch=use_eager_fetch,
-        )
+@sweep_eager_pipeclasses(Case(obs_range=3, obs_column_names=["label"], batch_size=3))
+def test_batching__exactly_one_batch(datapipe: ContextManager[PipeClass]):
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (1, 3)
         batch_iter = iter(exp_data_pipe)
         X_batch, obs_batch = next(batch_iter)
@@ -273,27 +202,16 @@ def test_batching__exactly_one_batch(
             next(batch_iter)
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(6, 3, pytorch_x_value_gen)],
+@sweep_eager_pipeclasses(
+    Case(
+        obs_range=6,
+        batch_size=3,
+        obs_column_names=["label"],
+        obs_query=AxisQuery(coords=([],)),
+    ),
 )
-@sweep_eager_fetch
-@sweep_pipeclasses
-def test_batching__empty_query_result(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
-    use_eager_fetch: bool,
-) -> None:
-    with soma_experiment.axis_query(
-        measurement_name="RNA", obs_query=soma.AxisQuery(coords=([],))
-    ) as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            use_eager_fetch=use_eager_fetch,
-        )
+def test_batching__empty_query_result(datapipe: ContextManager[PipeClass]):
+    with datapipe as exp_data_pipe:
         assert exp_data_pipe.shape == (0, 3)
         batch_iter = iter(exp_data_pipe)
 
@@ -301,135 +219,107 @@ def test_batching__empty_query_result(
             next(batch_iter)
 
 
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(10, 1, pytorch_x_value_gen)],
+@sweep_eager_pipeclasses(
+    Case(
+        obs_range=10,
+        var_range=1,
+        obs_column_names=["label"],
+        batch_size=3,
+        # Set SOMA batch read size such that PyTorch batches will span the tail and head of two SOMA batches
+        io_batch_size=4,
+    )
 )
-@sweep_eager_fetch
-@sweep_pipeclasses
-def test_batching__partial_soma_batches_are_concatenated(
-    PipeClass: PipeClassType, soma_experiment: Experiment, use_eager_fetch: bool
-) -> None:
-    with soma_experiment.axis_query(measurement_name="RNA") as query:
-        exp_data_pipe = PipeClass(
-            query,
-            X_name="raw",
-            obs_column_names=["label"],
-            batch_size=3,
-            # set SOMA batch read size such that PyTorch batches will span the tail and head of two SOMA batches
-            io_batch_size=4,
-            use_eager_fetch=use_eager_fetch,
+def test_batching__partial_soma_batches_are_concatenated(batches: list[XObsDatum]):
+    assert [len(batch[0]) for batch in batches] == [3, 3, 3, 1]
+
+
+@sweep_pipeclasses(
+    [
+        Case(
+            obs_range=6,
+            obs_column_names=["soma_joinid"],
+            io_batch_size=2,
+            world_size=world_size,
+            rank=rank,
         )
-
-        batches = list(exp_data_pipe)
-
-        assert [len(batch[0]) for batch in batches] == [3, 3, 3, 1]
-
-
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen",
-    [(6, 3, pytorch_x_value_gen), (7, 3, pytorch_x_value_gen)],
+        for world_size, rank in [(3, 0), (3, 1), (3, 2), (2, 0), (2, 1)]
+    ],
+    obs_range=[6, 7],
 )
-@pytest.mark.parametrize(
-    "world_size,rank",
-    [(3, 0), (3, 1), (3, 2), (2, 0), (2, 1)],
-)
-@sweep_pipeclasses
 def test_distributed__returns_data_partition_for_rank(
-    PipeClass: PipeClassType,
-    soma_experiment: Experiment,
+    datapipe: ContextManager[PipeClass],
     obs_range: int,
+    init_world: ContextManager,
     world_size: int,
     rank: int,
-) -> None:
+):
     """Tests pytorch._partition_obs_joinids() behavior in a simulated PyTorch distributed processing mode,
     using mocks to avoid having to do real PyTorch distributed setup."""
+    with init_world, datapipe as dp:
+        batches = list(dp)
+        soma_joinids = np.concatenate(
+            [batch[1]["soma_joinid"].to_numpy() for batch in batches]
+        )
 
-    with (
-        patch("torch.distributed.is_initialized") as mock_dist_is_initialized,
-        patch("torch.distributed.get_rank") as mock_dist_get_rank,
-        patch("torch.distributed.get_world_size") as mock_dist_get_world_size,
-    ):
-        mock_dist_is_initialized.return_value = True
-        mock_dist_get_rank.return_value = rank
-        mock_dist_get_world_size.return_value = world_size
-
-        with soma_experiment.axis_query(measurement_name="RNA") as query:
-            dp = PipeClass(
-                query,
-                X_name="raw",
-                obs_column_names=["soma_joinid"],
-                io_batch_size=2,
-            )
-            batches = list(iter(dp))
-            soma_joinids = np.concatenate(
-                [batch[1]["soma_joinid"].to_numpy() for batch in batches]
-            )
-
-            expected_joinids = np.array_split(np.arange(obs_range), world_size)[rank][
-                0 : obs_range // world_size
-            ].tolist()
-            assert sorted(soma_joinids) == expected_joinids
+        expected_joinids = np.array_split(np.arange(obs_range), world_size)[rank][
+            0 : obs_range // world_size
+        ].tolist()
+        assert sorted(soma_joinids) == expected_joinids
 
 
 # fmt: off
-@pytest.mark.parametrize(
-    "obs_range,var_range,X_value_gen,world_size,num_workers,splits",
-    [
-        (12, 3, pytorch_x_value_gen, 3, 2, [[0, 2, 4], [4,  6,  8], [ 8, 10, 12]]),
-        (13, 3, pytorch_x_value_gen, 3, 2, [[0, 2, 4], [5,  7,  9], [ 9, 11, 13]]),
-        (15, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 5], [5,  9, 10], [10, 14, 15]]),
-        (16, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 5], [6, 10, 11], [11, 15, 16]]),
-        (18, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 6], [6, 10, 12], [12, 16, 18]]),
-        (19, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 6], [7, 11, 13], [13, 17, 19]]),
-        (20, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 6], [7, 11, 13], [14, 18, 20]]),
-        (21, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 7], [7, 11, 14], [14, 18, 21]]),
-        (25, 3, pytorch_x_value_gen, 3, 2, [[0, 4, 8], [9, 13, 17], [17, 21, 25]]),
-        (27, 3, pytorch_x_value_gen, 3, 2, [[0, 6, 9], [9, 15, 18], [18, 24, 27]]),
-    ],
+@parametrize([
+    Case(
+        obs_range=obs_range,
+        PipeClass=ExperimentAxisQueryIterable,
+        obs_column_names=["soma_joinid"],
+        io_batch_size=2,
+        world_size=3,
+        num_workers=2,
+        expected_splits=expected_splits,
+    ) for obs_range, expected_splits in [
+        (12, [[0, 2, 4], [4,  6,  8], [ 8, 10, 12]]),
+        (13, [[0, 2, 4], [5,  7,  9], [ 9, 11, 13]]),
+        (15, [[0, 4, 5], [5,  9, 10], [10, 14, 15]]),
+        (16, [[0, 4, 5], [6, 10, 11], [11, 15, 16]]),
+        (18, [[0, 4, 6], [6, 10, 12], [12, 16, 18]]),
+        (19, [[0, 4, 6], [7, 11, 13], [13, 17, 19]]),
+        (20, [[0, 4, 6], [7, 11, 13], [14, 18, 20]]),
+        (21, [[0, 4, 7], [7, 11, 14], [14, 18, 21]]),
+        (25, [[0, 4, 8], [9, 13, 17], [17, 21, 25]]),
+        (27, [[0, 6, 9], [9, 15, 18], [18, 24, 27]]),
+    ]],
+    rank=[0, 1, 2],
+    worker_id=[0, 1],
 )
 # fmt: on
 def test_distributed_and_multiprocessing__returns_data_partition_for_rank(
-    soma_experiment: Experiment,
-    world_size: int,
+    init_world: ContextManager,
+    datapipe: ContextManager[PipeClass],
+    rank: int,
     num_workers: int,
-    splits: list[list[int]],
-) -> None:
+    worker_id: int,
+    expected_splits: list[list[int]],
+):
     """Tests pytorch._partition_obs_joinids() behavior in a simulated PyTorch distributed processing mode and
     DataLoader multiprocessing mode, using mocks to avoid having to do distributed pytorch
     setup or real DataLoader multiprocessing."""
 
-    for rank in range(world_size):
-        proc_splits = splits[rank]
-        for worker_id in range(num_workers):
-            expected_joinids = list(
-                range(proc_splits[worker_id], proc_splits[worker_id + 1])
-            )
-            with (
-                patch("torch.utils.data.get_worker_info") as mock_get_worker_info,
-                patch("torch.distributed.is_initialized") as mock_dist_is_initialized,
-                patch("torch.distributed.get_rank") as mock_dist_get_rank,
-                patch("torch.distributed.get_world_size") as mock_dist_get_world_size,
-            ):
-                mock_get_worker_info.return_value = WorkerInfo(
-                    id=worker_id, num_workers=num_workers, seed=1234
-                )
-                mock_dist_is_initialized.return_value = True
-                mock_dist_get_rank.return_value = rank
-                mock_dist_get_world_size.return_value = world_size
+    proc_splits = expected_splits[rank]
+    expected_joinids = list(range(proc_splits[worker_id], proc_splits[worker_id + 1]))
+    with (
+        init_world,
+        patch("torch.utils.data.get_worker_info") as mock_get_worker_info,
+    ):
+        mock_get_worker_info.return_value = WorkerInfo(
+            id=worker_id, num_workers=num_workers, seed=1234
+        )
 
-                with soma_experiment.axis_query(measurement_name="RNA") as query:
-                    dp = ExperimentAxisQueryIterable(
-                        query,
-                        X_name="raw",
-                        obs_column_names=["soma_joinid"],
-                        io_batch_size=2,
-                    )
+        with datapipe as dp:
+            batches = list(dp)
 
-                    batches = list(iter(dp))
+            soma_joinids = np.concatenate(
+                [batch[1]["soma_joinid"].to_numpy() for batch in batches]
+            ).tolist()
 
-                    soma_joinids = np.concatenate(
-                        [batch[1]["soma_joinid"].to_numpy() for batch in batches]
-                    ).tolist()
-
-                    assert soma_joinids == expected_joinids
+            assert soma_joinids == expected_joinids

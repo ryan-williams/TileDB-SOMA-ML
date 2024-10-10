@@ -7,7 +7,8 @@ import logging
 from typing import Any, TypeVar
 
 import torch
-import torchdata
+from torch.utils.data import DataLoader, IterableDataset
+from torchdata.datapipes.iter import IterDataPipe
 
 logger = logging.getLogger("tiledbsoma_ml.dataloader")
 
@@ -22,9 +23,9 @@ UNSUPPORTED_DATALOADER_ARGS = {
 
 
 def experiment_dataloader(
-    ds: torchdata.datapipes.iter.IterDataPipe | torch.utils.data.IterableDataset,
+    ds: IterDataPipe | IterableDataset,
     **dataloader_kwargs: Any,
-) -> torch.utils.data.DataLoader:
+) -> DataLoader:
     """Factory method for :class:`torch.utils.data.DataLoader`. This method can be used to safely instantiate a
     :class:`torch.utils.data.DataLoader` that works with :class:`tiledbsoma_ml.ExperimentAxisQueryIterableDataset`
     or :class:`tiledbsoma_ml.ExperimentAxisQueryIterDataPipe`.
@@ -66,7 +67,7 @@ def experiment_dataloader(
         # PyTorch's default collate_fn manipulates batches, which we don't want; replace it with a no-op.
         dataloader_kwargs["collate_fn"] = _collate_noop
 
-    return torch.utils.data.DataLoader(
+    return DataLoader(
         ds,
         batch_size=None,  # batching is handled by upstream iterator
         shuffle=False,  # shuffling is handled by upstream iterator

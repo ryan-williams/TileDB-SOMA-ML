@@ -104,7 +104,7 @@ class Case:
 
     @property
     @contextmanager
-    def datapipe(self) -> Yield[PipeClassType]:
+    def datapipe(self) -> Yield[PipeClass]:
         with self.experiment as exp:
             with exp.axis_query(
                 measurement_name=self.measurement_name,

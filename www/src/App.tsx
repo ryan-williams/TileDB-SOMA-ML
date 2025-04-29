@@ -10,11 +10,18 @@ const getBarW = interp([ 40, .9 ], [ 100, .5 ])
 
 const Bar = forwardRef<
   SVGRectElement,
-  { i: number, n: number, x: number, w: number, h: number } & SVGProps<SVGRectElement>
+  {
+    i: number,
+    n: number,
+    x: number,
+    w: number,
+    h: number,
+    full: boolean,
+  } & SVGProps<SVGRectElement>
 >(
-  ({ i, n, x, w, h, ...props }, ref) => {
+  ({ i, n, x, w, h, full, ...props }, ref) => {
     const fill = `hsl(${315 * i / n}, 100%, 50%)`
-    return (
+    return full ? (
       <rect
         {...props}
         ref={ref}
@@ -22,6 +29,14 @@ const Bar = forwardRef<
         height={h}
         x={x}
         fill={fill}
+      />
+    ) : (
+      <path
+        {...props}
+        ref={ref}
+        d={`M${x},0 h${w} v${h} h${-w} Z`}
+        stroke={fill}
+        strokeWidth={.15}
       />
     )
   }
@@ -55,11 +70,12 @@ export type BarsProps = {
   n?: number
   y?: number
   h: number
+  full: boolean
   barTooltip?: BarTooltip
   groupTooltip?: GroupTooltip
 } & ClassName
 
-export function Bars({ groups, n, y = 0, h, barTooltip, groupTooltip, className }: BarsProps) {
+export function Bars({ groups, n, y = 0, h, full, barTooltip, groupTooltip, className }: BarsProps) {
   const groupLens = groups.map(g => g.length)
   n = n ?? sum(groupLens)
   const startIdxs = scan(groupLens, (acc, x) => acc + x, 0)
@@ -77,7 +93,7 @@ export function Bars({ groups, n, y = 0, h, barTooltip, groupTooltip, className 
             {
               group.map((i, idx) => {
                 const xIdx = startIdxs[groupIdx] + idx
-                const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={h}/>
+                const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={h} full={full} />
                 if (barTooltip) {
                   return <Tooltip arrow key={i} title={barTooltip({ i })}>{bar}</Tooltip>
                 } else {
@@ -163,11 +179,11 @@ function App() {
   const shuffleChunks = useMemo(() => shuffle(batched(idxs, shuffleChunkSize), rng), [ idxs, shuffleChunkSize, rng ])
   const ioBatches = useMemo(() => batched(flatten(shuffleChunks), ioBatchSize).map(ioBatch => shuffle(ioBatch, rng)), [shuffleChunks, ioBatchSize, rng])
   const miniBatches = useMemo(() => batched(flatten(ioBatches), miniBatchSize), [ioBatches, miniBatchSize])
-  const barGroups: Pick<BarsProps, 'groups' | 'barTooltip' | 'groupTooltip'>[] = [
-    { groups: [idxs], barTooltip: ({ i }) => <span>Row {i}</span> },
-    { groups: shuffleChunks, groupTooltip: ({ idx, group }) => <span>Shuffle chunk {idx}: [{group[0]}, {group[group.length - 1] + 1})</span> },
-    { groups: ioBatches, groupTooltip: ({ idx, group }) => <span>IO batch {idx}: {group.join(", ")}</span> },
-    { groups: miniBatches, groupTooltip: ({ idx, group }) => <span>Mini-batch {idx}: {group.join(", ")}</span> },
+  const barGroups: Pick<BarsProps, 'groups' | 'full' | 'barTooltip' | 'groupTooltip'>[] = [
+    { groups: [idxs], full: false, barTooltip: ({ i }) => <span>Row {i}</span> },
+    { groups: shuffleChunks, full: false, groupTooltip: ({ idx, group }) => <span>Shuffle chunk {idx}: [{group[0]}, {group[group.length - 1] + 1})</span> },
+    { groups: ioBatches, full: true, groupTooltip: ({ idx, group }) => <span>IO batch {idx}: {group.join(", ")}</span> },
+    { groups: miniBatches, full: true, groupTooltip: ({ idx, group }) => <span>Mini-batch {idx}: {group.join(", ")}</span> },
   ]
   const rowH = barH + barsGap
   const H = barGroups.length * rowH - barsGap
@@ -187,8 +203,8 @@ function App() {
           <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
         </div>
         <svg viewBox={`0 0 100 ${H}`}>{
-          barGroups.map(({ groups, barTooltip, groupTooltip, }, idx) =>
-            <Bars key={idx} groups={groups} barTooltip={barTooltip} groupTooltip={groupTooltip} y={idx * rowH} h={barH} />
+          barGroups.map(({ groups, full, barTooltip, groupTooltip, }, idx) =>
+            <Bars key={idx} groups={groups} full={full} barTooltip={barTooltip} groupTooltip={groupTooltip} y={idx * rowH} h={barH} />
           )
         }
         </svg>

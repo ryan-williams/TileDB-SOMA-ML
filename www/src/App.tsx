@@ -36,7 +36,11 @@ const Bar = forwardRef<
         ref={ref}
         d={`M${x},0 h${w} v${h} h${-w} Z`}
         stroke={fill}
+        // fill={fill}
+        // fill={"white"}
+        fillOpacity={.5}
         strokeWidth={.15}
+        // strokeDasharray={.1}
       />
     )
   }
@@ -63,60 +67,66 @@ function getBarWX({ nBars, nChunks, }: {
 }
 
 export type BarTooltip = (_: { i: number }) => ReactNode
-export type GroupTooltip = (_: { idx: number, group: number[] }) => ReactNode
+export type GroupTooltipArg = { idx: number, group: number[] }
+export type GroupTooltip = (_: GroupTooltipArg) => ReactNode
 
 export type BarsProps = {
   groups: number[][]
   n?: number
   y?: number
   h: number
-  full: boolean
+  full?: boolean
   barTooltip?: BarTooltip
   groupTooltip?: GroupTooltip
+  groupLabel?: string
 } & ClassName
 
-export function Bars({ groups, n, y = 0, h, full, barTooltip, groupTooltip, className }: BarsProps) {
+export function Bars({ groups, n, y = 0, h, full = false, barTooltip, groupTooltip, groupLabel, className }: BarsProps) {
   const groupLens = groups.map(g => g.length)
   n = n ?? sum(groupLens)
   const startIdxs = scan(groupLens, (acc, x) => acc + x, 0)
-
+  if (groupLabel) {
+    groupTooltip = ({ idx, group }: GroupTooltipArg) => <span>{groupLabel} {idx}: {group.join(", ")}</span>
+  }
   const bars = getBarWX({ nBars: n, nChunks: groups.length })
   return (
-    <g className={className} transform={`translate(0, ${y ?? 0})`}>{
-      groups.map((group, groupIdx) => {
-        const groupX0 = bars.x(startIdxs[groupIdx], groupIdx)
-        const groupX1 = bars.x(startIdxs[groupIdx + 1], groupIdx)
-        const groupWidth = groupX1 - groupX0
-        const barGap = groupWidth / group.length - bars.w
-        return (
-          <g className={"shuffleChunk"} key={groupIdx}>
-            {
-              group.map((i, idx) => {
-                const xIdx = startIdxs[groupIdx] + idx
-                const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={h} full={full} />
-                if (barTooltip) {
-                  return <Tooltip arrow key={i} title={barTooltip({ i })}>{bar}</Tooltip>
-                } else {
-                  return bar
-                }
-              })
-            }
-            {groupTooltip && (
-              <Tooltip arrow title={groupTooltip({ idx: groupIdx, group, })}>
-                <rect
-                  x={groupX0 - barGap / 2}
-                  y={0}
-                  width={groupWidth}
-                  height={h}
-                  fill="transparent"
-                  className="cursor-pointer"
-                />
-              </Tooltip>
-            )}
-          </g>
-        )
-      })
-    }</g>
+    <svg viewBox={`0 0 100 ${h}`}>
+      <g className={className} transform={`translate(0, ${y ?? 0})`}>{
+        groups.map((group, groupIdx) => {
+          const groupX0 = bars.x(startIdxs[groupIdx], groupIdx)
+          const groupX1 = bars.x(startIdxs[groupIdx + 1], groupIdx)
+          const groupWidth = groupX1 - groupX0
+          const barGap = groupWidth / group.length - bars.w
+          return (
+            <g className={"shuffleChunk"} key={groupIdx}>
+              {
+                group.map((i, idx) => {
+                  const xIdx = startIdxs[groupIdx] + idx
+                  const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={h} full={full} />
+                  if (barTooltip) {
+                    return <Tooltip arrow key={i} title={barTooltip({ i })}>{bar}</Tooltip>
+                  } else {
+                    return bar
+                  }
+                })
+              }
+              {groupTooltip && (
+                <Tooltip arrow title={groupTooltip({ idx: groupIdx, group, })}>
+                  <rect
+                    x={groupX0 - barGap / 2}
+                    y={0}
+                    width={groupWidth}
+                    height={h}
+                    fill="transparent"
+                    className="cursor-pointer"
+                  />
+                </Tooltip>
+              )}
+            </g>
+          )
+        })
+      }</g>
+    </svg>
   )
 }
 
@@ -174,19 +184,12 @@ function App() {
   )
 
   const barH = 3
-  const barsGap = 3
+  const barsGap = 4
   const idxs = useMemo(() => range(n), [n])
   const shuffleChunks = useMemo(() => shuffle(batched(idxs, shuffleChunkSize), rng), [ idxs, shuffleChunkSize, rng ])
   const ioBatches = useMemo(() => batched(flatten(shuffleChunks), ioBatchSize).map(ioBatch => shuffle(ioBatch, rng)), [shuffleChunks, ioBatchSize, rng])
   const miniBatches = useMemo(() => batched(flatten(ioBatches), miniBatchSize), [ioBatches, miniBatchSize])
-  const barGroups: Pick<BarsProps, 'groups' | 'full' | 'barTooltip' | 'groupTooltip'>[] = [
-    { groups: [idxs], full: false, barTooltip: ({ i }) => <span>Row {i}</span> },
-    { groups: shuffleChunks, full: false, groupTooltip: ({ idx, group }) => <span>Shuffle chunk {idx}: [{group[0]}, {group[group.length - 1] + 1})</span> },
-    { groups: ioBatches, full: true, groupTooltip: ({ idx, group }) => <span>IO batch {idx}: {group.join(", ")}</span> },
-    { groups: miniBatches, full: true, groupTooltip: ({ idx, group }) => <span>Mini-batch {idx}: {group.join(", ")}</span> },
-  ]
-  const rowH = barH + barsGap
-  const H = barGroups.length * rowH - barsGap
+  const Row = (props: Omit<BarsProps, 'h'>) => <Bars {...props} h={barH} />
 
   const idealBits = useMemo(() => log2Factorial(n), [n])
   const shuffleChunkBits = useMemo(() => log2Factorial(shuffleChunks.length), [ shuffleChunks.length ])
@@ -202,12 +205,29 @@ function App() {
         <div>
           <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
         </div>
-        <svg viewBox={`0 0 100 ${H}`}>{
-          barGroups.map(({ groups, full, barTooltip, groupTooltip, }, idx) =>
-            <Bars key={idx} groups={groups} full={full} barTooltip={barTooltip} groupTooltip={groupTooltip} y={idx * rowH} h={barH} />
-          )
-        }
-        </svg>
+        <p>Given indices of cells in a TileDB-SOMA experiment<br/>(each corresponding to a cell, with metadata at a given row in the <code>obs</code> DataFrame, and gene expression data in the corresponding row of the <code>X</code> matrix):</p>
+        <Row
+          groups={[idxs]}
+          barTooltip={({ i }) => <span>Row {i}</span>}
+        />
+        <p>Break the cell indices into "shuffle chunks", and shuffle those:</p>
+        <Row
+          groups={shuffleChunks}
+          groupTooltip={
+            ({ idx, group }) =>
+              <span>Shuffle chunk {idx}: [{group[0]}, {group[group.length - 1] + 1}</span>
+          }
+        />
+        <p>Group those into "IO batches", and shuffle within each:</p>
+        <Row groups={ioBatches} groupLabel={"IO batch"} />
+        <p>
+          Now, fetch the <code>obs</code> and <code>X</code> data for each cell
+          <br/>
+          (in reality, this is done lazily, by an <code>Iterator</code>, with one "IO chunk" of pre-fetching)
+        </p>
+        <Row groups={ioBatches} groupLabel={"IO batch"} full />
+        <p>Finally, stride through each "IO batch", emitting "mini-batches" to the GPU:</p>
+        <Row groups={miniBatches} groupLabel={"Mini-batch"} full />
         <div className={"controls"}>
           <Number label={"N"} min={1} state={[ n, setN ]} />
           <Number label={"Seed"} state={[ seed, setSeed ]} />

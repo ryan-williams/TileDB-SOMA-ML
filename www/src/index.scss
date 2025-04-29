@@ -22,7 +22,7 @@ body, :root {
   width: 100%;
   svg {
     width: 100%;
-    padding-bottom: 2em;
+    padding-bottom: .5em;
     //border: 1px solid white;
     g {
       border: 1px solid white;
@@ -31,6 +31,7 @@ body, :root {
 }
 
 .controls {
+  margin-top: 1rem;
   label {
     margin-right: 1em;
     span {

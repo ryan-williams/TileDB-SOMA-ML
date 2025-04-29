@@ -39,7 +39,6 @@ body, :root {
     }
     &.number {
       input[type="number"] {
-        width: 3em;
         background-color: transparent;
         color: inherit;
         border: 1px solid rgba($fg, 0.4);

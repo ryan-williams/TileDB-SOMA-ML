@@ -1,10 +1,10 @@
 import { Tooltip } from "@mui/material"
-import { A, batched, interp, log, range, round, scan, shuffle, sum, } from "@rdub/base"
+import { A, batched, ceil, floor, interp, log, max, range, round, scan, shuffle, sum, } from "@rdub/base"
 import { ClassName } from "@rdub/base/classname"
 import { flatten } from "lodash"
-import { Dispatch, forwardRef, KeyboardEventHandler, ReactNode, SVGProps, useEffect, useMemo, useState } from "react"
+import { Dispatch, forwardRef, KeyboardEventHandler, ReactNode, type SetStateAction, SVGProps, useEffect, useMemo, useState } from "react"
 import seedrandom from 'seedrandom'
-import useSessionStorageState from "use-session-storage-state"
+import useSessionStorageState, { SessionStorageState } from "use-session-storage-state"
 
 const getBarW = interp([ 40, .9 ], [ 100, .5 ])
 
@@ -130,7 +130,7 @@ export function Bars({ groups, n, y = 0, h, full = false, barTooltip, groupToolt
   )
 }
 
-function Number({ label, min, state: [ val, set ] }: { label: ReactNode, min?: number, state: [ number, Dispatch<number> ] }) {
+function Number({ label, min, state: { val, set } }: { label: ReactNode, min?: number, state: State<number> }) {
   const [ str, setStr ] = useState(val.toString())
   const [ err, setErr ] = useState(false)
   useEffect(() => {
@@ -158,7 +158,7 @@ function Number({ label, min, state: [ val, set ] }: { label: ReactNode, min?: n
       type={"number"}
       className={err ? "err" : undefined}
       value={str}
-      width={5}
+      style={{ width: `${max(2, str.length)}rem` }}
       min={min}
       onChange={e => { setStr(e.target.value) }}
       onKeyDown={onKeyDown}
@@ -170,13 +170,102 @@ function log2Factorial(n: number) {
   return sum(range(2, n).map(i => log(i))) / log(2)
 }
 
+export type Set<T> = Dispatch<SetStateAction<T>>
+export type State<T> = { val: T, set: Set<T> }
+function stateObj<T>([ val, set ]: [ T, Set<T> ] | SessionStorageState<T>): State<T> {
+  return { val, set }
+}
+
+export type Controls = {
+  n: State<number>
+  seed: State<number>
+  shuffleChunkSize: State<number>
+  ioBatchSize: State<number>
+  miniBatchSize: State<number>
+  regenNonce: State<number>
+}
+
+export type Defaults = {
+  n: number
+  shuffleChunkSize: number
+  ioBatchSize: number
+  miniBatchSize: number
+}
+export type Vals = Defaults & {
+  seed: number
+}
+
+function useParams(name: string, defs: Defaults) {
+  const n = useSessionStorageState(`${name}.n`, { defaultValue: defs.n })
+  const seed = useSessionStorageState(`${name}.seed`, { defaultValue: 0 })
+  const shuffleChunkSize = useSessionStorageState(`${name}.shuffleChunkSize`, { defaultValue: defs.shuffleChunkSize })
+  const ioBatchSize = useSessionStorageState(`${name}.ioBatchSize`, { defaultValue: defs.ioBatchSize })
+  const miniBatchSize = useSessionStorageState(`${name}.miniBatchSize`, { defaultValue: defs.miniBatchSize })
+  const regenNonce = useState(0)
+  return {
+    n: stateObj(n),
+    seed: stateObj(seed),
+    shuffleChunkSize: stateObj(shuffleChunkSize),
+    ioBatchSize: stateObj(ioBatchSize),
+    miniBatchSize: stateObj(miniBatchSize),
+    regenNonce: stateObj(regenNonce),
+  }
+}
+
+function Controls(
+  {
+    n,
+    seed,
+    shuffleChunkSize,
+    ioBatchSize,
+    miniBatchSize,
+    regenNonce,
+  }: Controls
+) {
+  const numShuffleChunks = ceil(n.val / shuffleChunkSize.val)
+  const ioBatchLens = Array(floor(n.val / ioBatchSize.val)).fill(ioBatchSize.val)
+  const extra = n.val % ioBatchSize.val
+  if (extra) {
+    ioBatchLens.push(extra)
+  }
+  console.log(ioBatchLens)
+  const idealBits = useMemo(() => log2Factorial(n.val), [n.val])
+  const shuffleChunkBits = useMemo(() => log2Factorial(numShuffleChunks), [ numShuffleChunks ])
+  const ioBatchBits = useMemo(() => sum(ioBatchLens.map(l => log2Factorial(l))), [ ioBatchLens ])
+  const actualBits = useMemo(() => shuffleChunkBits + ioBatchBits, [ shuffleChunkBits, ioBatchBits ])
+  function formatBits(bits: number) {
+    return round(bits)
+  }
+  return <>
+    <div className={"controls"}>
+      <Number label={"N"} min={1} state={n} />
+      <Number label={"Seed"} state={seed} />
+      <Number label={"Shuffle chunk"} min={1} state={shuffleChunkSize} />
+      <Number label={"IO batch"} min={1} state={ioBatchSize} />
+      <Number label={"Mini-batch"} min={1} state={miniBatchSize} />
+      <input type={"button"} value={"Shuffle"} onClick={() => regenNonce.set((nonce: number) => nonce + 1) } />
+    </div>
+    <div>
+      <p>Ideal shuffle entropy: {formatBits(idealBits).toLocaleString()} bits</p>
+      <p>Actual: {formatBits(actualBits).toLocaleString()} ({round(100 * actualBits / idealBits)}%; {formatBits(shuffleChunkBits).toLocaleString()} from shuffling chunks, {formatBits(ioBatchBits).toLocaleString()} from shuffling IO batches)</p>
+    </div>
+  </>
+}
+
+const VizDefs: Defaults = { n: 100, shuffleChunkSize: 5, ioBatchSize: 20, miniBatchSize: 4, }
+const ProdDefs: Defaults = { n: 100000, shuffleChunkSize: 64, ioBatchSize: 65536, miniBatchSize: 128, }
+
 function App() {
-  const [ n, setN ] = useSessionStorageState("n", { defaultValue: 100 })
-  const [ seed, setSeed ] = useSessionStorageState("seed", { defaultValue: 0 })
-  const [ shuffleChunkSize, setShuffleChunkSize ] = useSessionStorageState("shuffleChunkSize", { defaultValue: 5 })
-  const [ ioBatchSize, setIoBatchSize ] = useSessionStorageState("ioBatchSize", { defaultValue: 20 })
-  const [ miniBatchSize, setMiniBatchSize ] = useSessionStorageState("miniBatchSize", { defaultValue: 4 })
-  const [ regenNonce, setRegenNonce ] = useState(0)
+  const state = useParams("viz", VizDefs)
+  const defaults = useParams("defs", ProdDefs)
+  const {
+    n: { val: n, },
+    seed: { val: seed, },
+    shuffleChunkSize: { val: shuffleChunkSize, },
+    ioBatchSize: { val: ioBatchSize, },
+    miniBatchSize: { val: miniBatchSize, },
+    regenNonce: { val: regenNonce, },
+  } = state
   const rng = useMemo(
     // Need a terminator after stringified number: https://github.com/davidbau/seedrandom/issues/48
     () => seedrandom(`${seed + regenNonce}\n`),
@@ -184,20 +273,11 @@ function App() {
   )
 
   const barH = 3
-  const barsGap = 4
   const idxs = useMemo(() => range(n), [n])
   const shuffleChunks = useMemo(() => shuffle(batched(idxs, shuffleChunkSize), rng), [ idxs, shuffleChunkSize, rng ])
   const ioBatches = useMemo(() => batched(flatten(shuffleChunks), ioBatchSize).map(ioBatch => shuffle(ioBatch, rng)), [shuffleChunks, ioBatchSize, rng])
   const miniBatches = useMemo(() => batched(flatten(ioBatches), miniBatchSize), [ioBatches, miniBatchSize])
   const Row = (props: Omit<BarsProps, 'h'>) => <Bars {...props} h={barH} />
-
-  const idealBits = useMemo(() => log2Factorial(n), [n])
-  const shuffleChunkBits = useMemo(() => log2Factorial(shuffleChunks.length), [ shuffleChunks.length ])
-  const ioBatchBits = useMemo(() => sum(ioBatches.map(ioBatch => log2Factorial(ioBatch.length))), [ ioBatches ])
-  const actualBits = useMemo(() => shuffleChunkBits + ioBatchBits, [ shuffleChunkBits, ioBatchBits ])
-  function formatBits(bits: number) {
-    return round(bits)
-  }
 
   return (
     <>
@@ -228,18 +308,10 @@ function App() {
         <Row groups={ioBatches} groupLabel={"IO batch"} full />
         <p>Finally, stride through each "IO batch", emitting "mini-batches" to the GPU:</p>
         <Row groups={miniBatches} groupLabel={"Mini-batch"} full />
-        <div className={"controls"}>
-          <Number label={"N"} min={1} state={[ n, setN ]} />
-          <Number label={"Seed"} state={[ seed, setSeed ]} />
-          <Number label={"Shuffle chunk"} min={1} state={[ shuffleChunkSize, setShuffleChunkSize ]} />
-          <Number label={"IO batch"} min={1} state={[ ioBatchSize, setIoBatchSize ]} />
-          <Number label={"Mini-batch"} min={1} state={[ miniBatchSize, setMiniBatchSize ]} />
-          <input type={"button"} value={"Shuffle"} onClick={() => setRegenNonce(nonce => nonce + 1)} />
-        </div>
-        <div>
-          <p>Ideal shuffle entropy: {formatBits(idealBits)} bits</p>
-          <p>Actual: {formatBits(actualBits)} ({round(100 * actualBits / idealBits)}%; {formatBits(shuffleChunkBits)} from shuffling chunks, {formatBits(ioBatchBits)} from shuffling IO batches)</p>
-        </div>
+        <Controls {...state} />
+        <hr/>
+        <p>The defaults in TileDB-SOMA-ML are:</p>
+        <Controls {...defaults} />
       </div>
     </>
   )

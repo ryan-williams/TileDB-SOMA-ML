@@ -306,19 +306,18 @@ function App() {
   const ioBatches = useMemo(() => batched(flatten(shuffleChunks), ioBatchSize).map(ioBatch => shuffle(ioBatch, rng)), [shuffleChunks, ioBatchSize, rng])
   const miniBatches = useMemo(() => batched(flatten(ioBatches), miniBatchSize), [ioBatches, miniBatchSize])
   const Row = (props: Omit<BarsProps, 'h'>) => <Bars {...props} h={barH} />
-
+  const IOBatchIterable = <A href={"https://single-cell-data.github.io/TileDB-SOMA-ML/#module-tiledbsoma_ml._io_batch_iterable"}><code>IOBatchIterable</code></A>
   return (
     <>
       <div className="container">
-        <div>
-          <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
-        </div>
-        <p>Given <code>int64</code> indices of cells in a TileDB-SOMA experiment (e.g. returned from an <A href={"https://tiledbsoma.readthedocs.io/en/1.15.0/python-tiledbsoma-experimentaxisquery.html"}><code>ExperimentAxisQuery</code></A>:</p>
+        <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
+        <p>Visualization / Analysis of a chunked shuffle used to stream remote, out-of-core <A href={"https://github.com/single-cell-data/TileDB-SOMA"}>TileDB-SOMA</A> sparse matrices into PyTorch.</p>
+        <p>1. Given <code>int64</code> indices of cells in a TileDB-SOMA experiment (e.g. returned from an <A href={"https://tiledbsoma.readthedocs.io/en/1.15.0/python-tiledbsoma-experimentaxisquery.html"}><code>ExperimentAxisQuery</code></A>:</p>
         <Row
           groups={[idxs]}
           barTooltip={({ i }) => <span>Row {i}</span>}
         />
-        <p>Break the cell indices into "shuffle chunks", and shuffle those:</p>
+        <p>2. Break the cell indices into "shuffle chunks", and shuffle those (<A href={"https://single-cell-data.github.io/TileDB-SOMA-ML/#module-tiledbsoma_ml._query_ids"}><code>QueryIDs</code></A>):</p>
         <Row
           groups={shuffleChunks}
           groupTooltip={
@@ -326,13 +325,11 @@ function App() {
               <span>Shuffle chunk {idx}: [{group[0]}, {group[group.length - 1] + 1}</span>
           }
         />
-        <p>Group those into "IO batches", and shuffle within each:</p>
+        <p>3. Group those into "IO batches", and shuffle within each ({IOBatchIterable}):</p>
         <Row groups={ioBatches} groupLabel={"IO batch"} />
-        <p>
-          Now, iterate over IO batches, fetching <code>obs</code> and <code>X</code> data for each cell:
-        </p>
+        <p>4. Iterate over IO batches, fetching <code>obs</code> and <code>X</code> data for each cell ({IOBatchIterable}):</p>
         <Row groups={ioBatches} groupLabel={"IO batch"} full />
-        <p>Finally, stride through each "IO batch", emitting "mini-batches" to the GPU:</p>
+        <p>5. Stride through each "IO batch", emitting "mini-batches" to the GPU (<A href={"https://single-cell-data.github.io/TileDB-SOMA-ML/#module-tiledbsoma_ml._mini_batch_iterable"}><code>MiniBatchIterable</code></A>):</p>
         <Row groups={miniBatches} groupLabel={"Mini-batch"} full />
         <Controls {...viz} />
         <hr/>

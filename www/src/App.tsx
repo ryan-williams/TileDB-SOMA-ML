@@ -1,5 +1,5 @@
 import { Tooltip } from "@mui/material"
-import { A, batched, ceil, floor, interp, log, max, range, round, scan, shuffle, sum, } from "@rdub/base"
+import { A, batched, ceil, E, floor, interp, log, log2, max, range, round, scan, shuffle, sum, } from "@rdub/base"
 import { ClassName } from "@rdub/base/classname"
 import { flatten } from "lodash"
 import { Dispatch, forwardRef, KeyboardEventHandler, ReactNode, type SetStateAction, SVGProps, useEffect, useMemo, useState } from "react"
@@ -158,7 +158,7 @@ function Number({ label, min, state: { val, set } }: { label: ReactNode, min?: n
       type={"number"}
       className={err ? "err" : undefined}
       value={str}
-      style={{ width: `${max(2, str.length)}rem` }}
+      style={{ width: `${max(2.1, str.length)}rem` }}
       min={min}
       onChange={e => { setStr(e.target.value) }}
       onKeyDown={onKeyDown}
@@ -166,9 +166,25 @@ function Number({ label, min, state: { val, set } }: { label: ReactNode, min?: n
   </label>
 }
 
-function log2Factorial(n: number) {
-  return sum(range(2, n).map(i => log(i))) / log(2)
+// 0.00046% error at cutoff 1e5 (cf. `console.log`s below)
+const DefaultCutoff = 1e5
+function log2Factorial(n: number, cutoff: number = DefaultCutoff) {
+  if (n <= cutoff) {
+    if (n < 2) return 0;
+    let sum = 0
+    for (let i = 2; i < n; i+= 1) {
+      sum += log(i)
+    }
+    return sum / log2(E)
+  } else {
+    // Stirling's approximation for log(n!) ≈ n*log(n) - n
+    // Converting to log base 2: (n*ln(n) - n) / ln(2)
+    return (n * log(n) - n) / log2(E);
+  }
 }
+// const actualCutoff = log2Factorial(defaultCutoff)
+// const estimatedCutoff = log2Factorial(defaultCutoff, defaultCutoff - 1)
+// console.log(actualCutoff, estimatedCutoff, `${((estimatedCutoff - actualCutoff) / actualCutoff * 100).toPrecision(3)}%`)
 
 export type Set<T> = Dispatch<SetStateAction<T>>
 export type State<T> = { val: T, set: Set<T> }
@@ -178,24 +194,37 @@ function stateObj<T>([ val, set ]: [ T, Set<T> ] | SessionStorageState<T>): Stat
 
 export type Controls = {
   n: State<number>
-  seed: State<number>
   shuffleChunkSize: State<number>
   ioBatchSize: State<number>
-  miniBatchSize: State<number>
-  regenNonce: State<number>
+  seed?: State<number>
+  miniBatchSize?: State<number>
+  regenNonce?: State<number>
 }
 
-export type Defaults = {
+export type BaseDefaults = {
+  n: number
+  shuffleChunkSize: number
+  ioBatchSize: number
+}
+
+function useBaseParams(name: string, defs: BaseDefaults) {
+  const n = useSessionStorageState(`${name}.n`, { defaultValue: defs.n })
+  const shuffleChunkSize = useSessionStorageState(`${name}.shuffleChunkSize`, { defaultValue: defs.shuffleChunkSize })
+  const ioBatchSize = useSessionStorageState(`${name}.ioBatchSize`, { defaultValue: defs.ioBatchSize })
+  return {
+    n: stateObj(n),
+    shuffleChunkSize: stateObj(shuffleChunkSize),
+    ioBatchSize: stateObj(ioBatchSize),
+  }
+}
+
+export type VizDefaults = {
   n: number
   shuffleChunkSize: number
   ioBatchSize: number
   miniBatchSize: number
 }
-export type Vals = Defaults & {
-  seed: number
-}
-
-function useParams(name: string, defs: Defaults) {
+function useVizParams(name: string, defs: VizDefaults) {
   const n = useSessionStorageState(`${name}.n`, { defaultValue: defs.n })
   const seed = useSessionStorageState(`${name}.seed`, { defaultValue: 0 })
   const shuffleChunkSize = useSessionStorageState(`${name}.shuffleChunkSize`, { defaultValue: defs.shuffleChunkSize })
@@ -223,15 +252,14 @@ function Controls(
   }: Controls
 ) {
   const numShuffleChunks = ceil(n.val / shuffleChunkSize.val)
-  const ioBatchLens = Array(floor(n.val / ioBatchSize.val)).fill(ioBatchSize.val)
+  const numFullIOBatches = floor(n.val / ioBatchSize.val)
+  let ioBatchBits = numFullIOBatches * log2Factorial(ioBatchSize.val)
   const extra = n.val % ioBatchSize.val
   if (extra) {
-    ioBatchLens.push(extra)
+    ioBatchBits += log2Factorial(extra)
   }
-  console.log(ioBatchLens)
   const idealBits = useMemo(() => log2Factorial(n.val), [n.val])
   const shuffleChunkBits = useMemo(() => log2Factorial(numShuffleChunks), [ numShuffleChunks ])
-  const ioBatchBits = useMemo(() => sum(ioBatchLens.map(l => log2Factorial(l))), [ ioBatchLens ])
   const actualBits = useMemo(() => shuffleChunkBits + ioBatchBits, [ shuffleChunkBits, ioBatchBits ])
   function formatBits(bits: number) {
     return round(bits)
@@ -239,11 +267,11 @@ function Controls(
   return <>
     <div className={"controls"}>
       <Number label={"N"} min={1} state={n} />
-      <Number label={"Seed"} state={seed} />
+      {seed && <Number label={"Seed"} state={seed} />}
       <Number label={"Shuffle chunk"} min={1} state={shuffleChunkSize} />
       <Number label={"IO batch"} min={1} state={ioBatchSize} />
-      <Number label={"Mini-batch"} min={1} state={miniBatchSize} />
-      <input type={"button"} value={"Shuffle"} onClick={() => regenNonce.set((nonce: number) => nonce + 1) } />
+      {miniBatchSize && <Number label={"Mini-batch"} min={1} state={miniBatchSize} />}
+      {regenNonce && <input type={"button"} value={"Shuffle"} onClick={() => regenNonce.set((nonce: number) => nonce + 1) } />}
     </div>
     <div>
       <p>Ideal shuffle entropy: {formatBits(idealBits).toLocaleString()} bits</p>
@@ -252,12 +280,12 @@ function Controls(
   </>
 }
 
-const VizDefs: Defaults = { n: 100, shuffleChunkSize: 5, ioBatchSize: 20, miniBatchSize: 4, }
-const ProdDefs: Defaults = { n: 100000, shuffleChunkSize: 64, ioBatchSize: 65536, miniBatchSize: 128, }
+const VizDefs: VizDefaults = { n: 100, shuffleChunkSize: 5, ioBatchSize: 20, miniBatchSize: 4, }
+const BaseDefs: BaseDefaults = { n: 100000, shuffleChunkSize: 64, ioBatchSize: 65536, }
 
 function App() {
-  const state = useParams("viz", VizDefs)
-  const defaults = useParams("defs", ProdDefs)
+  const viz = useVizParams("viz", VizDefs)
+  const base = useBaseParams("defs", BaseDefs)
   const {
     n: { val: n, },
     seed: { val: seed, },
@@ -265,7 +293,7 @@ function App() {
     ioBatchSize: { val: ioBatchSize, },
     miniBatchSize: { val: miniBatchSize, },
     regenNonce: { val: regenNonce, },
-  } = state
+  } = viz
   const rng = useMemo(
     // Need a terminator after stringified number: https://github.com/davidbau/seedrandom/issues/48
     () => seedrandom(`${seed + regenNonce}\n`),
@@ -285,7 +313,7 @@ function App() {
         <div>
           <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
         </div>
-        <p>Given indices of cells in a TileDB-SOMA experiment<br/>(each corresponding to a cell, with metadata at a given row in the <code>obs</code> DataFrame, and gene expression data in the corresponding row of the <code>X</code> matrix):</p>
+        <p>Given <code>int64</code> indices of cells in a TileDB-SOMA experiment (e.g. returned from an <A href={"https://tiledbsoma.readthedocs.io/en/1.15.0/python-tiledbsoma-experimentaxisquery.html"}><code>ExperimentAxisQuery</code></A>:</p>
         <Row
           groups={[idxs]}
           barTooltip={({ i }) => <span>Row {i}</span>}
@@ -301,17 +329,20 @@ function App() {
         <p>Group those into "IO batches", and shuffle within each:</p>
         <Row groups={ioBatches} groupLabel={"IO batch"} />
         <p>
-          Now, fetch the <code>obs</code> and <code>X</code> data for each cell
-          <br/>
-          (in reality, this is done lazily, by an <code>Iterator</code>, with one "IO chunk" of pre-fetching)
+          Now, iterate over IO batches, fetching <code>obs</code> and <code>X</code> data for each cell:
         </p>
         <Row groups={ioBatches} groupLabel={"IO batch"} full />
         <p>Finally, stride through each "IO batch", emitting "mini-batches" to the GPU:</p>
         <Row groups={miniBatches} groupLabel={"Mini-batch"} full />
-        <Controls {...state} />
+        <Controls {...viz} />
         <hr/>
-        <p>The defaults in TileDB-SOMA-ML are:</p>
-        <Controls {...defaults} />
+        <h2>Production-sized example</h2>
+        <p>
+          <A href={"https://github.com/single-cell-data/TileDB-SOMA-ML/blob/v0.1.0/src/tiledbsoma_ml/dataset.py#L31-L32"}>The defaults</A> in TileDB-SOMA-ML are 2^6 (shuffle chunk size) and 2^16 (IO batch size).
+          <br/>
+          This provides most of the entropy of a full shuffle, for 1e5-1e8 sized queries:
+        </p>
+        <Controls {...base} />
       </div>
     </>
   )

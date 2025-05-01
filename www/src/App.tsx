@@ -2,7 +2,7 @@ import { Tooltip } from "@mui/material"
 import { A, batched, ceil, E, floor, interp, log, log2, max, range, round, scan, shuffle, sum, } from "@rdub/base"
 import { ClassName } from "@rdub/base/classname"
 import { flatten } from "lodash"
-import { Dispatch, forwardRef, KeyboardEventHandler, ReactNode, type SetStateAction, SVGProps, useEffect, useMemo, useState } from "react"
+import { Dispatch, forwardRef, KeyboardEventHandler, ReactNode, type SetStateAction, SVGProps, useEffect, useMemo, useRef, useState } from "react"
 import seedrandom from 'seedrandom'
 import useSessionStorageState, { SessionStorageState } from "use-session-storage-state"
 
@@ -73,7 +73,6 @@ export type GroupTooltip = (_: GroupTooltipArg) => ReactNode
 export type BarsProps = {
   groups: number[][]
   n?: number
-  y?: number
   h: number
   full?: boolean
   barTooltip?: BarTooltip
@@ -81,52 +80,77 @@ export type BarsProps = {
   groupLabel?: string
 } & ClassName
 
-export function Bars({ groups, n, y = 0, h, full = false, barTooltip, groupTooltip, groupLabel, className }: BarsProps) {
+export function Bars({ groups, n, h, full = false, barTooltip, groupTooltip, groupLabel }: BarsProps) {
   const groupLens = groups.map(g => g.length)
   n = n ?? sum(groupLens)
   const startIdxs = scan(groupLens, (acc, x) => acc + x, 0)
   if (groupLabel) {
     groupTooltip = ({ idx, group }: GroupTooltipArg) => <span>{groupLabel} {idx}: {group.join(", ")}</span>
   }
+  const ref = useRef<SVGSVGElement>(null)
+  const [svgSize, setSvgSize] = useState<[number, number] | null>(null)
+  useEffect(() => {
+    if (ref.current) {
+      console.log("SVG Element:", ref.current)
+      const { width, height } = ref.current.getBoundingClientRect()
+      console.log("Initial Rendered :", width, height)
+      setSvgSize([ width, height ])
+
+      // Optional: Add a resize observer if you need to react to dynamic height changes
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect
+          setSvgSize([ width, height ])
+        }
+      })
+      resizeObserver.observe(ref.current)
+      return () => resizeObserver.disconnect()
+    }
+  }, [ref])
+  const H = useMemo(() => {
+    if (!svgSize) return h
+    const [ width, height ] = svgSize
+    const H = 100 * height / width
+    console.log(`${width}x${height}, H:`, H)
+    return H
+  }, [svgSize])
   const bars = getBarWX({ nBars: n, nChunks: groups.length })
   return (
-    <svg viewBox={`0 0 100 ${h}`}>
-      <g className={className} transform={`translate(0, ${y ?? 0})`}>{
-        groups.map((group, groupIdx) => {
-          const groupX0 = bars.x(startIdxs[groupIdx], groupIdx)
-          const groupX1 = bars.x(startIdxs[groupIdx + 1], groupIdx)
-          const groupWidth = groupX1 - groupX0
-          const barGap = groupWidth / group.length - bars.w
-          return (
-            <g className={"shuffleChunk"} key={groupIdx}>
-              {
-                group.map((i, idx) => {
-                  const xIdx = startIdxs[groupIdx] + idx
-                  const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={h} full={full} />
-                  if (barTooltip) {
-                    return <Tooltip arrow key={i} title={barTooltip({ i })}>{bar}</Tooltip>
-                  } else {
-                    return bar
-                  }
-                })
-              }
-              {groupTooltip && (
-                <Tooltip arrow title={groupTooltip({ idx: groupIdx, group, })}>
-                  <rect
-                    x={groupX0 - barGap / 2}
-                    y={0}
-                    width={groupWidth}
-                    height={h}
-                    fill="transparent"
-                    className="cursor-pointer"
-                  />
-                </Tooltip>
-              )}
-            </g>
-          )
-        })
-      }</g>
-    </svg>
+    <svg ref={ref} viewBox={`0 0 100 ${H}`}>{
+      groups.map((group, groupIdx) => {
+        const groupX0 = bars.x(startIdxs[groupIdx], groupIdx)
+        const groupX1 = bars.x(startIdxs[groupIdx + 1], groupIdx)
+        const groupWidth = groupX1 - groupX0
+        const barGap = groupWidth / group.length - bars.w
+        return (
+          <g className={"shuffleChunk"} key={groupIdx}>
+            {
+              group.map((i, idx) => {
+                const xIdx = startIdxs[groupIdx] + idx
+                const bar = <Bar key={i} i={i} n={n} x={bars.x(xIdx, groupIdx)} w={bars.w} h={H} full={full} />
+                if (barTooltip) {
+                  return <Tooltip arrow key={i} title={barTooltip({ i })}>{bar}</Tooltip>
+                } else {
+                  return bar
+                }
+              })
+            }
+            {groupTooltip && (
+              <Tooltip arrow title={groupTooltip({ idx: groupIdx, group, })}>
+                <rect
+                  x={groupX0 - barGap / 2}
+                  y={0}
+                  width={groupWidth}
+                  height={h}
+                  fill="transparent"
+                  className="cursor-pointer"
+                />
+              </Tooltip>
+            )}
+          </g>
+        )
+      })
+    }</svg>
   )
 }
 
@@ -300,7 +324,7 @@ function App() {
     [ seed, regenNonce ]
   )
 
-  const barH = 3
+  const barH = 5
   const idxs = useMemo(() => range(n), [n])
   const shuffleChunks = useMemo(() => shuffle(batched(idxs, shuffleChunkSize), rng), [ idxs, shuffleChunkSize, rng ])
   const ioBatches = useMemo(() => batched(flatten(shuffleChunks), ioBatchSize).map(ioBatch => shuffle(ioBatch, rng)), [shuffleChunks, ioBatchSize, rng])

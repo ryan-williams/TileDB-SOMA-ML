@@ -170,7 +170,7 @@ function Number({ label, min, state: { val, set } }: { label: ReactNode, min?: n
 const DefaultCutoff = 1e5
 function log2Factorial(n: number, cutoff: number = DefaultCutoff) {
   if (n <= cutoff) {
-    if (n < 2) return 0;
+    if (n < 2) return 0
     let sum = 0
     for (let i = 2; i < n; i+= 1) {
       sum += log(i)
@@ -179,7 +179,7 @@ function log2Factorial(n: number, cutoff: number = DefaultCutoff) {
   } else {
     // Stirling's approximation for log(n!) ≈ n*log(n) - n
     // Converting to log base 2: (n*ln(n) - n) / ln(2)
-    return (n * log(n) - n) / log2(E);
+    return (n * log(n) - n) / log2(E)
   }
 }
 // const actualCutoff = log2Factorial(defaultCutoff)
@@ -312,12 +312,12 @@ function App() {
       <div className="container">
         <h1><A href={"https://github.com/single-cell-data/TileDB-SOMA-ML"}>TileDB-SOMA-ML</A> shuffle simulator</h1>
         <p>Visualization / Analysis of a chunked shuffle used to stream remote, out-of-core <A href={"https://github.com/single-cell-data/TileDB-SOMA"}>TileDB-SOMA</A> sparse matrices into PyTorch.</p>
-        <p>1. Given <code>int64</code> indices of cells in a TileDB-SOMA experiment (e.g. returned from an <A href={"https://tiledbsoma.readthedocs.io/en/1.15.0/python-tiledbsoma-experimentaxisquery.html"}><code>ExperimentAxisQuery</code></A>:</p>
+        <p>1. Given <code>int64</code> indices of cells in a TileDB-SOMA experiment (e.g. returned from an <A href={"https://tiledbsoma.readthedocs.io/en/1.15.0/python-tiledbsoma-experimentaxisquery.html"}><code>ExperimentAxisQuery</code></A>):</p>
         <Row
           groups={[idxs]}
           barTooltip={({ i }) => <span>Row {i}</span>}
         />
-        <p>2. Break the cell indices into "shuffle chunks", and shuffle those (<A href={"https://single-cell-data.github.io/TileDB-SOMA-ML/#module-tiledbsoma_ml._query_ids"}><code>QueryIDs</code></A>):</p>
+        <p>2. Divide the cell indices into "shuffle chunks", and shuffle those (<A href={"https://single-cell-data.github.io/TileDB-SOMA-ML/#module-tiledbsoma_ml._query_ids"}><code>QueryIDs</code></A>):</p>
         <Row
           groups={shuffleChunks}
           groupTooltip={
